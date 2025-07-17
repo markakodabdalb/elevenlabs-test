@@ -1,0 +1,31 @@
+{
+  "name": "students-api",
+  "version": "1.0.0",
+  "description": "Öğrenci yönetim sistemi API",
+  "main": "app.js",
+  "type": "module",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon app.js",
+    "mcp": "node mcp-server.js",
+    "start:mcp": "node app.js && node mcp-server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.13.3",
+    "axios": "^1.6.0",
+    "express": "^4.18.2",
+    "mcp-server-sqlite-npx": "^0.4.0",
+    "sqlite3": "^5.1.6"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "keywords": [
+    "sqlite",
+    "express",
+    "api",
+    "mcp"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}

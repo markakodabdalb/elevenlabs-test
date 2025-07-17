@@ -8,7 +8,7 @@
     "start": "node app.js",
     "dev": "nodemon app.js",
     "mcp": "node mcp-server.js",
-    "start:mcp": "node app.js && node mcp-server.js"
+    "start:mcp": "node app.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.13.3",

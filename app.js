@@ -23,12 +23,12 @@ try {
   instructions = readFileSync(join(__dirname, "instructions.md"), "utf-8");
 } catch {}
 
-// Database connection
-const db = new sqlite3.Database('./database.db');
-
 // Create Express app
 const app = express();
 app.use(express.json());
+
+// Database connection
+const db = new sqlite3.Database('./database.db');
 
 // CORS settings
 app.use((req, res, next) => {
@@ -53,7 +53,12 @@ const StudentSchema = z.object({
   sinif_id: z.number().optional().describe("Sınıf ID"),
 });
 
+// Define all tool names
 const ToolName = {
+  // Original tools
+  ECHO: "echo",
+  ADD: "add",
+  // Student API tools
   GET_ALL_STUDENTS: "get_all_students",
   GET_STUDENT_BY_ID: "get_student_by_id",
   GET_STUDENT_GRADES: "get_student_grades",
@@ -68,80 +73,8 @@ const ToolName = {
   CUSTOM_QUERY: "custom_query"
 };
 
-const createMCPServer = () => {
-  const server = new Server(
-    {
-      name: "student-api-mcp",
-      version: "1.0.0",
-    },
-    {
-      capabilities: {
-        prompts: {},
-        resources: { subscribe: true },
-        tools: {},
-        logging: {},
-        completions: {},
-      },
-      instructions,
-    }
-  );
-
-  // Tool list
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const tools = [
-      {
-        name: ToolName.GET_ALL_STUDENTS,
-        description: "Tüm aktif öğrencileri sınıf bilgileriyle birlikte getir",
-        inputSchema: {},
-      },
-      {
-        name: ToolName.GET_STUDENT_BY_ID,
-        description: "ID ile öğrenci bilgilerini getir",
-        inputSchema: zodToJsonSchema(z.object({
-          id: z.number().describe("Öğrenci ID")
-        })),
-      },
-      // ... Add other tools similarly
-    ];
-    return { tools };
-  });
-
-  // Tool call handler
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params;
-
-    try {
-      switch (name) {
-        case ToolName.GET_ALL_STUDENTS:
-          return await getAllStudents();
-        case ToolName.GET_STUDENT_BY_ID:
-          return await getStudentById(args.id);
-        // ... Add other tool handlers
-        default:
-          throw new Error(`Unknown tool: ${name}`);
-      }
-    } catch (error) {
-      return {
-        content: [{ type: "text", text: `Error: ${error.message}` }],
-        isError: true,
-      };
-    }
-  });
-
-  // Prompt handlers
-  server.setRequestHandler(ListPromptsRequestSchema, async () => {
-    return { prompts: [] };
-  });
-
-  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-    throw new Error(`Unknown prompt: ${request.params.name}`);
-  });
-
-  const cleanup = async () => {
-    // Cleanup logic if needed
-  };
-
-  return { server, cleanup };
+const PromptName = {
+  SIMPLE: "simple_prompt",
 };
 
 // Student API Functions
@@ -170,33 +103,398 @@ async function getAllStudents() {
   });
 }
 
-async function getStudentById(id) {
-  return new Promise((resolve, reject) => {
-    const query = `
-      SELECT 
-        o.*, 
-        s.sinif_adi,
-        s.seviye
-      FROM ogrenciler o
-      LEFT JOIN siniflar s ON o.sinif_id = s.id
-      WHERE o.id = ?
-    `;
+// Add other student API functions here...
+// ... (keep all your existing database functions, just convert them to return promises with MCP format)
+
+const createMCPServer = () => {
+  const server = new Server(
+    {
+      name: "student-api-mcp",
+      version: "1.0.0",
+    },
+    {
+      capabilities: {
+        prompts: {},
+        resources: { subscribe: true },
+        tools: {},
+        logging: {},
+        completions: {},
+      },
+      instructions,
+    }
+  );
+
+  // Tool list
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const tools = [
+      // Original tools
+      {
+        name: ToolName.ECHO,
+        description: "Echoes back the input",
+        inputSchema: zodToJsonSchema(EchoSchema),
+      },
+      {
+        name: ToolName.ADD,
+        description: "Adds two numbers",
+        inputSchema: zodToJsonSchema(AddSchema),
+      },
+      // Student API tools
+      {
+        name: ToolName.GET_ALL_STUDENTS,
+        description: "Tüm aktif öğrencileri sınıf bilgileriyle birlikte getir",
+        inputSchema: {},
+      },
+      {
+        name: ToolName.GET_STUDENT_BY_ID,
+        description: "ID ile öğrenci bilgilerini getir",
+        inputSchema: zodToJsonSchema(z.object({
+          id: z.number().describe("Öğrenci ID")
+        })),
+      },
+      // Add other student API tools here...
+    ];
+    return { tools };
+  });
+
+  // Tool call
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+    try {
+      switch (name) {
+        // Original tools
+        case ToolName.ECHO:
+          const validatedEchoArgs = EchoSchema.parse(args);
+          return {
+            content: [{ type: "text", text: `Echo: ${validatedEchoArgs.message}` }],
+          };
+        case ToolName.ADD:
+          const validatedAddArgs = AddSchema.parse(args);
+          const sum = validatedAddArgs.a + validatedAddArgs.b;
+          return {
+            content: [
+              {
+                type: "text",
+                text: `The sum of ${validatedAddArgs.a} and ${validatedAddArgs.b} is ${sum}.`,
+              },
+            ],
+          };
+        
+        // Student API tools
+        case ToolName.GET_ALL_STUDENTS:
+          return await getAllStudents();
+        // Add other student API tool handlers here...
+        
+        default:
+          throw new Error(`Unknown tool: ${name}`);
+      }
+    } catch (error) {
+      return {
+        content: [{ type: "text", text: `Error: ${error.message}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // Prompt handlers
+  server.setRequestHandler(ListPromptsRequestSchema, async () => {
+    return {
+      prompts: [
+        {
+          name: PromptName.SIMPLE,
+          description: "A prompt without arguments",
+        },
+      ],
+    };
+  });
+
+  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    const { name } = request.params;
+    if (name === PromptName.SIMPLE) {
+      return {
+        messages: [
+          {
+            role: "user",
+            content: {
+              type: "text",
+              text: "This is a simple prompt without arguments.",
+            },
+          },
+        ],
+      };
+    }
+    throw new Error(`Unknown prompt: ${name}`);
+  });
+
+  const cleanup = async () => {
+    // Cleanup logic if needed
+  };
+
+  return { server, cleanup };
+};
+
+// Keep the original REST API endpoints
+// ======================
+// ÖĞRENCİLER API ENDPOINTS
+// ======================
+
+// Tüm öğrencileri getir
+app.get('/api/ogrenciler', (req, res) => {
+  const query = `
+    SELECT 
+      o.*,
+      s.sinif_adi,
+      s.seviye
+    FROM ogrenciler o
+    LEFT JOIN siniflar s ON o.sinif_id = s.id
+    WHERE o.aktif = 1
+    ORDER BY o.ad, o.soyad
+  `;
+  
+  db.all(query, [], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ data: rows });
+  });
+});
+
+// ID'ye göre öğrenci getir
+app.get('/api/ogrenciler/:id', (req, res) => {
+  const query = `
+    SELECT 
+      o.*, 
+      s.sinif_adi,
+      s.seviye
+    FROM ogrenciler o
+    LEFT JOIN siniflar s ON o.sinif_id = s.id
+    WHERE o.id = ?
+  `;
+  
+  db.get(query, [req.params.id], (err, row) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    if (!row) {
+      res.status(404).json({ error: 'Öğrenci bulunamadı' });
+      return;
+    }
+    res.json({ data: row });
+  });
+});
+
+// Öğrenci notlarını getir
+app.get('/api/ogrenciler/:id/notlar', (req, res) => {
+  const query = `
+    SELECT 
+      n.*, 
+      d.ders_adi,
+      d.kod as ders_kodu
+    FROM notlar n
+    JOIN dersler d ON n.ders_id = d.id
+    WHERE n.ogrenci_id = ?
+    ORDER BY n.tarih DESC
+  `;
+  
+  db.all(query, [req.params.id], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ data: rows });
+  });
+});
+
+// Öğrenci devamsızlıklarını getir
+app.get('/api/ogrenciler/:id/devamsizlik', (req, res) => {
+  const query = `
+    SELECT 
+      d.*, 
+      dr.ders_adi,
+      dr.kod as ders_kodu
+    FROM devamsizlik d
+    JOIN dersler dr ON d.ders_id = dr.id
+    WHERE d.ogrenci_id = ?
+    ORDER BY d.tarih DESC
+  `;
+  
+  db.all(query, [req.params.id], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ data: rows });
+  });
+});
+
+// Öğrenci ödemelerini getir
+app.get('/api/ogrenciler/:id/odemeler', (req, res) => {
+  const query = `
+    SELECT *
+    FROM odemeler
+    WHERE ogrenci_id = ?
+    ORDER BY tarih DESC
+  `;
+  
+  db.all(query, [req.params.id], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ data: rows });
+  });
+});
+
+// Sınıfa göre öğrenciler
+app.get('/api/siniflar/:sinifId/ogrenciler', (req, res) => {
+  const query = `
+    SELECT 
+      o.*, 
+      s.sinif_adi,
+      s.seviye
+    FROM ogrenciler o
+    JOIN siniflar s ON o.sinif_id = s.id
+    WHERE o.sinif_id = ? AND o.aktif = 1
+    ORDER BY o.ad, o.soyad
+  `;
+  
+  db.all(query, [req.params.sinifId], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ data: rows });
+  });
+});
+
+// Öğrenci ara (isim, soyisim, TC)
+app.get('/api/ogrenciler/ara/:search', (req, res) => {
+  const searchTerm = `%${req.params.search}%`;
+  const query = `
+    SELECT 
+      o.*, 
+      s.sinif_adi,
+      s.seviye
+    FROM ogrenciler o
+    LEFT JOIN siniflar s ON o.sinif_id = s.id
+    WHERE (o.ad LIKE ? OR o.soyad LIKE ? OR o.tc_no LIKE ?)
+    AND o.aktif = 1
+    ORDER BY o.ad, o.soyad
+  `;
+  
+  db.all(query, [searchTerm, searchTerm, searchTerm], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ data: rows });
+  });
+});
+
+// Öğrenci not ortalaması
+app.get('/api/ogrenciler/:id/ortalama', (req, res) => {
+  const query = `
+    SELECT 
+      AVG(CAST(not_degeri as FLOAT)) as genel_ortalama,
+      COUNT(*) as toplam_not,
+      d.ders_adi,
+      AVG(CAST(n.not_degeri as FLOAT)) as ders_ortalama
+    FROM notlar n
+    JOIN dersler d ON n.ders_id = d.id
+    WHERE n.ogrenci_id = ?
+    GROUP BY d.id, d.ders_adi
+    ORDER BY ders_ortalama DESC
+  `;
+  
+  db.all(query, [req.params.id], (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    // Genel ortalama hesapla
+    const genelOrtalama = rows.length > 0 ? 
+      rows.reduce((sum, row) => sum + row.ders_ortalama, 0) / rows.length : 0;
     
-    db.get(query, [id], (err, row) => {
-      if (err) {
-        reject(err);
-      } else if (!row) {
-        reject(new Error('Öğrenci bulunamadı'));
-      } else {
-        resolve({
-          content: [{ type: "text", text: JSON.stringify({ data: row }, null, 2) }],
-        });
+    res.json({ 
+      data: {
+        genel_ortalama: genel_ortalama.toFixed(2),
+        ders_ortalamalari: rows
       }
     });
   });
-}
+});
 
-// ... Add other student API functions similarly
+// Yeni öğrenci ekle
+app.post('/api/ogrenciler', (req, res) => {
+  const { tc_no, ad, soyad, dogum_tarihi, cinsiyet, telefon, email, adres, veli_adi, veli_telefonu, sinif_id } = req.body;
+  
+  const query = `
+    INSERT INTO ogrenciler (tc_no, ad, soyad, dogum_tarihi, cinsiyet, telefon, email, adres, veli_adi, veli_telefonu, sinif_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `;
+  
+  db.run(query, [tc_no, ad, soyad, dogum_tarihi, cinsiyet, telefon, email, adres, veli_adi, veli_telefonu, sinif_id], function(err) {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ message: 'Öğrenci başarıyla eklendi', id: this.lastID });
+  });
+});
+
+// Öğrenci güncelle
+app.put('/api/ogrenciler/:id', (req, res) => {
+  const { tc_no, ad, soyad, dogum_tarihi, cinsiyet, telefon, email, adres, veli_adi, veli_telefonu, sinif_id, aktif } = req.body;
+  
+  const query = `
+    UPDATE ogrenciler 
+    SET tc_no = ?, ad = ?, soyad = ?, dogum_tarihi = ?, cinsiyet = ?, 
+        telefon = ?, email = ?, adres = ?, veli_adi = ?, veli_telefonu = ?, 
+        sinif_id = ?, aktif = ?
+    WHERE id = ?
+  `;
+  
+  db.run(query, [tc_no, ad, soyad, dogum_tarihi, cinsiyet, telefon, email, adres, veli_adi, veli_telefonu, sinif_id, aktif, req.params.id], function(err) {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ message: 'Öğrenci başarıyla güncellendi', changes: this.changes });
+  });
+});
+
+// Öğrenci sil (soft delete)
+app.delete('/api/ogrenciler/:id', (req, res) => {
+  const query = `UPDATE ogrenciler SET aktif = 0 WHERE id = ?`;
+  
+  db.run(query, [req.params.id], function(err) {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ message: 'Öğrenci başarıyla silindi', changes: this.changes });
+  });
+});
+
+// Özel sorgu endpoint'i (Claude için)
+app.post('/api/custom-query', (req, res) => {
+  const { query, params = [] } = req.body;
+  
+  // Güvenlik kontrolü - sadece SELECT sorgularına izin ver
+  if (!query.trim().toUpperCase().startsWith('SELECT')) {
+    res.status(400).json({ error: 'Sadece SELECT sorguları desteklenir' });
+    return;
+  }
+  
+  db.all(query, params, (err, rows) => {
+    if (err) {
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    res.json({ data: rows });
+  });
+});
 
 // SSE Transport Setup
 const transports = new Map();
@@ -256,6 +554,7 @@ app.listen(PORT, () => {
   console.log(`📍 Port: ${PORT}`);
   console.log(`🔗 SSE endpoint: /sse`);
   console.log(`📮 Message endpoint: /message`);
+  console.log(`📝 REST API endpoints available at /api/*`);
 });
 
 // Graceful shutdown

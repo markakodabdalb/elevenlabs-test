@@ -55,10 +55,6 @@ const StudentSchema = z.object({
 
 // Define all tool names
 const ToolName = {
-  // Original tools
-  ECHO: "echo",
-  ADD: "add",
-  // Student API tools
   GET_ALL_STUDENTS: "get_all_students",
   GET_STUDENT_BY_ID: "get_student_by_id",
   GET_STUDENT_GRADES: "get_student_grades",
@@ -72,6 +68,24 @@ const ToolName = {
   DELETE_STUDENT: "delete_student",
   CUSTOM_QUERY: "custom_query"
 };
+
+// Define schemas for tool inputs
+const StudentIdSchema = z.object({
+  id: z.number().describe("Öğrenci ID")
+});
+
+const SearchSchema = z.object({
+  search: z.string().describe("Arama terimi")
+});
+
+const ClassIdSchema = z.object({
+  sinif_id: z.number().describe("Sınıf ID")
+});
+
+const CustomQuerySchema = z.object({
+  query: z.string().describe("SQL SELECT sorgusu"),
+  params: z.array(z.string()).optional().describe("Sorgu parametreleri")
+});
 
 const PromptName = {
   SIMPLE: "simple_prompt",
@@ -103,8 +117,211 @@ async function getAllStudents() {
   });
 }
 
-// Add other student API functions here...
-// ... (keep all your existing database functions, just convert them to return promises with MCP format)
+async function getStudentById(id) {
+  return new Promise((resolve, reject) => {
+    const query = `
+      SELECT 
+        o.*, 
+        s.sinif_adi,
+        s.seviye
+      FROM ogrenciler o
+      LEFT JOIN siniflar s ON o.sinif_id = s.id
+      WHERE o.id = ?
+    `;
+    
+    db.get(query, [id], (err, row) => {
+      if (err) {
+        reject(err);
+      } else if (!row) {
+        reject(new Error('Öğrenci bulunamadı'));
+      } else {
+        resolve({
+          content: [{ type: "text", text: JSON.stringify({ data: row }, null, 2) }],
+        });
+      }
+    });
+  });
+}
+
+async function getStudentGrades(id) {
+  return new Promise((resolve, reject) => {
+    const query = `
+      SELECT 
+        n.*, 
+        d.ders_adi,
+        d.kod as ders_kodu
+      FROM notlar n
+      JOIN dersler d ON n.ders_id = d.id
+      WHERE n.ogrenci_id = ?
+      ORDER BY n.tarih DESC
+    `;
+    
+    db.all(query, [id], (err, rows) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve({
+          content: [{ type: "text", text: JSON.stringify({ data: rows }, null, 2) }],
+        });
+      }
+    });
+  });
+}
+
+async function getStudentAttendance(id) {
+  return new Promise((resolve, reject) => {
+    const query = `
+      SELECT 
+        d.*, 
+        dr.ders_adi,
+        dr.kod as ders_kodu
+      FROM devamsizlik d
+      JOIN dersler dr ON d.ders_id = dr.id
+      WHERE d.ogrenci_id = ?
+      ORDER BY d.tarih DESC
+    `;
+    
+    db.all(query, [id], (err, rows) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve({
+          content: [{ type: "text", text: JSON.stringify({ data: rows }, null, 2) }],
+        });
+      }
+    });
+  });
+}
+
+async function getStudentPayments(id) {
+  return new Promise((resolve, reject) => {
+    const query = `
+      SELECT *
+      FROM odemeler
+      WHERE ogrenci_id = ?
+      ORDER BY tarih DESC
+    `;
+    
+    db.all(query, [id], (err, rows) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve({
+          content: [{ type: "text", text: JSON.stringify({ data: rows }, null, 2) }],
+        });
+      }
+    });
+  });
+}
+
+async function getStudentsByClass(sinifId) {
+  return new Promise((resolve, reject) => {
+    const query = `
+      SELECT 
+        o.*, 
+        s.sinif_adi,
+        s.seviye
+      FROM ogrenciler o
+      JOIN siniflar s ON o.sinif_id = s.id
+      WHERE o.sinif_id = ? AND o.aktif = 1
+      ORDER BY o.ad, o.soyad
+    `;
+    
+    db.all(query, [sinifId], (err, rows) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve({
+          content: [{ type: "text", text: JSON.stringify({ data: rows }, null, 2) }],
+        });
+      }
+    });
+  });
+}
+
+async function searchStudents(searchTerm) {
+  return new Promise((resolve, reject) => {
+    const searchPattern = `%${searchTerm}%`;
+    const query = `
+      SELECT 
+        o.*, 
+        s.sinif_adi,
+        s.seviye
+      FROM ogrenciler o
+      LEFT JOIN siniflar s ON o.sinif_id = s.id
+      WHERE (o.ad LIKE ? OR o.soyad LIKE ? OR o.tc_no LIKE ?)
+      AND o.aktif = 1
+      ORDER BY o.ad, o.soyad
+    `;
+    
+    db.all(query, [searchPattern, searchPattern, searchPattern], (err, rows) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve({
+          content: [{ type: "text", text: JSON.stringify({ data: rows }, null, 2) }],
+        });
+      }
+    });
+  });
+}
+
+async function getStudentAverage(id) {
+  return new Promise((resolve, reject) => {
+    const query = `
+      SELECT 
+        AVG(CAST(not_degeri as FLOAT)) as genel_ortalama,
+        COUNT(*) as toplam_not,
+        d.ders_adi,
+        AVG(CAST(n.not_degeri as FLOAT)) as ders_ortalama
+      FROM notlar n
+      JOIN dersler d ON n.ders_id = d.id
+      WHERE n.ogrenci_id = ?
+      GROUP BY d.id, d.ders_adi
+      ORDER BY ders_ortalama DESC
+    `;
+    
+    db.all(query, [id], (err, rows) => {
+      if (err) {
+        reject(err);
+      } else {
+        const genelOrtalama = rows.length > 0 ? 
+          rows.reduce((sum, row) => sum + row.ders_ortalama, 0) / rows.length : 0;
+        
+        resolve({
+          content: [{ 
+            type: "text", 
+            text: JSON.stringify({ 
+              data: {
+                genel_ortalama: genelOrtalama.toFixed(2),
+                ders_ortalamalari: rows
+              }
+            }, null, 2) 
+          }],
+        });
+      }
+    });
+  });
+}
+
+async function customQuery(query, params = []) {
+  return new Promise((resolve, reject) => {
+    if (!query.trim().toUpperCase().startsWith('SELECT')) {
+      reject(new Error('Sadece SELECT sorguları desteklenir'));
+      return;
+    }
+    
+    db.all(query, params, (err, rows) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve({
+          content: [{ type: "text", text: JSON.stringify({ data: rows }, null, 2) }],
+        });
+      }
+    });
+  });
+}
 
 const createMCPServer = () => {
   const server = new Server(
@@ -127,18 +344,6 @@ const createMCPServer = () => {
   // Tool list
   server.setRequestHandler(ListToolsRequestSchema, async () => {
     const tools = [
-      // Original tools
-      {
-        name: ToolName.ECHO,
-        description: "Echoes back the input",
-        inputSchema: zodToJsonSchema(EchoSchema),
-      },
-      {
-        name: ToolName.ADD,
-        description: "Adds two numbers",
-        inputSchema: zodToJsonSchema(AddSchema),
-      },
-      // Student API tools
       {
         name: ToolName.GET_ALL_STUDENTS,
         description: "Tüm aktif öğrencileri sınıf bilgileriyle birlikte getir",
@@ -147,43 +352,88 @@ const createMCPServer = () => {
       {
         name: ToolName.GET_STUDENT_BY_ID,
         description: "ID ile öğrenci bilgilerini getir",
-        inputSchema: zodToJsonSchema(z.object({
-          id: z.number().describe("Öğrenci ID")
-        })),
+        inputSchema: zodToJsonSchema(StudentIdSchema),
       },
-      // Add other student API tools here...
+      {
+        name: ToolName.GET_STUDENT_GRADES,
+        description: "Öğrencinin notlarını getir",
+        inputSchema: zodToJsonSchema(StudentIdSchema),
+      },
+      {
+        name: ToolName.GET_STUDENT_ATTENDANCE,
+        description: "Öğrencinin devamsızlık bilgilerini getir",
+        inputSchema: zodToJsonSchema(StudentIdSchema),
+      },
+      {
+        name: ToolName.GET_STUDENT_PAYMENTS,
+        description: "Öğrencinin ödeme bilgilerini getir",
+        inputSchema: zodToJsonSchema(StudentIdSchema),
+      },
+      {
+        name: ToolName.GET_STUDENTS_BY_CLASS,
+        description: "Sınıfa göre öğrencileri getir",
+        inputSchema: zodToJsonSchema(ClassIdSchema),
+      },
+      {
+        name: ToolName.SEARCH_STUDENTS,
+        description: "Öğrenci ara (isim, soyisim, TC)",
+        inputSchema: zodToJsonSchema(SearchSchema),
+      },
+      {
+        name: ToolName.GET_STUDENT_AVERAGE,
+        description: "Öğrencinin not ortalamasını getir",
+        inputSchema: zodToJsonSchema(StudentIdSchema),
+      },
+      {
+        name: ToolName.CUSTOM_QUERY,
+        description: "Özel SELECT sorgusu çalıştır",
+        inputSchema: zodToJsonSchema(CustomQuerySchema),
+      }
     ];
     return { tools };
   });
 
-  // Tool call
+  // Tool call handler
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
+    
     try {
       switch (name) {
-        // Original tools
-        case ToolName.ECHO:
-          const validatedEchoArgs = EchoSchema.parse(args);
-          return {
-            content: [{ type: "text", text: `Echo: ${validatedEchoArgs.message}` }],
-          };
-        case ToolName.ADD:
-          const validatedAddArgs = AddSchema.parse(args);
-          const sum = validatedAddArgs.a + validatedAddArgs.b;
-          return {
-            content: [
-              {
-                type: "text",
-                text: `The sum of ${validatedAddArgs.a} and ${validatedAddArgs.b} is ${sum}.`,
-              },
-            ],
-          };
-        
-        // Student API tools
         case ToolName.GET_ALL_STUDENTS:
           return await getAllStudents();
-        // Add other student API tool handlers here...
-        
+          
+        case ToolName.GET_STUDENT_BY_ID:
+          const validatedId = StudentIdSchema.parse(args);
+          return await getStudentById(validatedId.id);
+          
+        case ToolName.GET_STUDENT_GRADES:
+          const validatedGradesId = StudentIdSchema.parse(args);
+          return await getStudentGrades(validatedGradesId.id);
+          
+        case ToolName.GET_STUDENT_ATTENDANCE:
+          const validatedAttendanceId = StudentIdSchema.parse(args);
+          return await getStudentAttendance(validatedAttendanceId.id);
+          
+        case ToolName.GET_STUDENT_PAYMENTS:
+          const validatedPaymentsId = StudentIdSchema.parse(args);
+          return await getStudentPayments(validatedPaymentsId.id);
+          
+        case ToolName.GET_STUDENTS_BY_CLASS:
+          const validatedClassId = ClassIdSchema.parse(args);
+          return await getStudentsByClass(validatedClassId.sinif_id);
+          
+        case ToolName.SEARCH_STUDENTS:
+          const validatedSearch = SearchSchema.parse(args);
+          return await searchStudents(validatedSearch.search);
+          
+        case ToolName.GET_STUDENT_AVERAGE:
+          const validatedAverageId = StudentIdSchema.parse(args);
+          return await getStudentAverage(validatedAverageId.id);
+          
+        case ToolName.CUSTOM_QUERY:
+          const validatedQuery = CustomQuerySchema.parse(args);
+          return await customQuery(validatedQuery.query, validatedQuery.params);
+          
         default:
           throw new Error(`Unknown tool: ${name}`);
       }
@@ -195,34 +445,13 @@ const createMCPServer = () => {
     }
   });
 
-  // Prompt handlers
+  // Prompt handlers (minimal implementation as we focus on tools)
   server.setRequestHandler(ListPromptsRequestSchema, async () => {
-    return {
-      prompts: [
-        {
-          name: PromptName.SIMPLE,
-          description: "A prompt without arguments",
-        },
-      ],
-    };
+    return { prompts: [] };
   });
 
   server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-    const { name } = request.params;
-    if (name === PromptName.SIMPLE) {
-      return {
-        messages: [
-          {
-            role: "user",
-            content: {
-              type: "text",
-              text: "This is a simple prompt without arguments.",
-            },
-          },
-        ],
-      };
-    }
-    throw new Error(`Unknown prompt: ${name}`);
+    throw new Error(`Unknown prompt: ${request.params.name}`);
   });
 
   const cleanup = async () => {
